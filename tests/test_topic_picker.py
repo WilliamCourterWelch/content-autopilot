@@ -38,6 +38,12 @@ class CollectLinksTests(unittest.TestCase):
         self.assertTrue(_article_href("/changelog/voice-ai-agent-transfer", "https://ideas.gohighlevel.com/changelog"))
         self.assertIsNone(_article_href("/changelog", "https://ideas.gohighlevel.com/changelog"))
         self.assertIsNone(_article_href("/pricing", "https://www.gohighlevel.com"))
+        self.assertIsNone(
+            _article_href(
+                "http://127.0.0.1/support/solutions/articles/155000004401-conversation-ai",
+                "https://help.gohighlevel.com/support/search/solutions",
+            )
+        )
 
     def test_parses_mixed_listing_html(self):
         html = """
@@ -107,6 +113,26 @@ class DedupePickerTests(unittest.TestCase):
         self.assertNotIn(CONVO, urls)
         self.assertNotIn(VOICE, urls)
         self.assertEqual(kept, [])
+
+    def test_pillar_keywords_do_not_starve_picker(self):
+        fresh = {"source_url": CONVO, "title": "Conversation AI bot"}
+        with mock.patch(
+            "scripts.dedupe.load_pillar_pages",
+            return_value=[
+                {
+                    "url": "https://globalhighlevel.com/conversation-ai",
+                    "title": "Conversation AI",
+                    "keywords": ["conversation ai"],
+                }
+            ],
+        ):
+            kept = hard_dedupe(
+                [fresh],
+                published=[],
+                transistor_episodes=[],
+                site_slugs=[],
+            )
+        self.assertEqual(len(kept), 1)
 
     def test_keeps_new_money_topic(self):
         fresh = {

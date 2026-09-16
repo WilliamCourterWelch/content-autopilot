@@ -19,8 +19,8 @@ from urllib.parse import quote_plus, urljoin, urlparse
 import requests
 from bs4 import BeautifulSoup
 
-from scripts.dedupe import check_already_done
-from scripts.source_filter import classify_ghl_ai_source, filter_sources
+from scripts.dedupe import check_already_done, fetch_ghl_site_slugs, fingerprint
+from scripts.source_filter import filter_sources, is_allowed_source_host
 
 USER_AGENT = "ContentAutopilot-TopicPicker/1.0"
 
@@ -189,6 +189,8 @@ def _article_href(href: str, base: str) -> str | None:
     if not href:
         return None
     full = urljoin(base, href).split("#")[0].split("?")[0]
+    if not is_allowed_source_host(full):
+        return None
     path = (urlparse(full).path or "").lower()
     host = (urlparse(full).netloc or "").lower()
     if "/support/solutions/articles/" in path:
@@ -204,6 +206,11 @@ def _article_href(href: str, base: str) -> str | None:
         if tail and tail not in ("updates", "whats-new", "release-notes"):
             return full
     return None
+
+
+def _final_url_allowed(resp, requested: str) -> bool:
+    final = getattr(resp, "url", None) or requested
+    return is_allowed_source_host(final)
 
 
 def _collect_links(html: str, base: str) -> list[dict]:
@@ -240,6 +247,8 @@ def scrape_help_search(limit_per_term: int = 12, session=None) -> list[dict]:
             resp.raise_for_status()
         except requests.RequestException:
             continue
+        if not _final_url_allowed(resp, url):
+            continue
         for item in _collect_links(resp.text, url):
             href = item["source_url"]
             if href in seen:
@@ -263,6 +272,8 @@ def scrape_changelog_indexes(session=None) -> list[dict]:
             resp = http.get(url, timeout=15, headers={"User-Agent": USER_AGENT})
             resp.raise_for_status()
         except requests.RequestException:
+            continue
+        if not _final_url_allowed(resp, url):
             continue
         for item in _collect_links(resp.text, url):
             href = item["source_url"]
@@ -321,8 +332,34 @@ def collect_candidates(extra_urls=None, include_seeds=True, session=None) -> lis
     return filter_sources(unique, require_ai=True)
 
 
+def _exact_site_slug_hit(content: dict, slugs: list[str]) -> bool:
+    """True only when this topic's slug/article id already exists on the site.
+
+    Pillar keyword overlap is NOT a duplicate — those pages are fold targets.
+    """
+    probe = fingerprint(
+        content.get("source_url") or "",
+        content.get("title") or "",
+    )
+    for slug in slugs or []:
+        if slug and (slug == probe["slug"] or slug == probe["article_id"]):
+            return True
+    return False
+
+
 def hard_dedupe(candidates, *, transistor_episodes=None, published=None, site_slugs=None) -> list[dict]:
-    """Drop anything already in published.json, Transistor, known-episodes, or site."""
+    """Drop anything already in published.json, Transistor, known-episodes, or site slugs.
+
+    Site check is exact slug / article id only. Matching a pillar keyword must
+    not starve the picker — pillars are fold destinations, not 'already shipped'.
+    """
+    slugs = site_slugs
+    if slugs is None:
+        try:
+            slugs = fetch_ghl_site_slugs()
+        except Exception:
+            slugs = []
+
     kept = []
     for item in candidates or []:
         content = {
@@ -333,11 +370,12 @@ def hard_dedupe(candidates, *, transistor_episodes=None, published=None, site_sl
             content,
             published=published,
             transistor_episodes=transistor_episodes,
-            site_slugs=site_slugs,
             check_transistor=True,
-            check_site=True,
+            check_site=False,
         )
         if hit.duplicate:
+            continue
+        if _exact_site_slug_hit(content, slugs):
             continue
         item = dict(item)
         item["_dedupe"] = {"reason": hit.reason, "duplicate": False}
