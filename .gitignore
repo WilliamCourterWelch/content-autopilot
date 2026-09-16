@@ -31,6 +31,10 @@ data/mindmaps/
 data/quizzes/
 data/flashcards/
 data/published.json
+data/site-upgrades/
+data/transistor-index.json
+!data/known-episodes.json
+!data/pillar-pages.json
 logs/
 *.log
 
