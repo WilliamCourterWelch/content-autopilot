@@ -1,11 +1,10 @@
 import json
-import os
 import tempfile
 import unittest
 from pathlib import Path
 from unittest import mock
 
-from scripts.publishers import publish_ghl_site, publish_newsletter
+from scripts.publishers import publish_ghl_site
 
 
 class SiteUpgradeTests(unittest.TestCase):
@@ -46,11 +45,12 @@ class SiteUpgradeTests(unittest.TestCase):
             self.assertEqual(body["action"], "fold-into-existing-page")
             self.assertNotIn("new-thin-post", body["pillar_url"])
 
-    def test_newsletter_skips_without_inventing_a_list(self):
-        with mock.patch.dict(os.environ, {}, clear=True):
-            result = publish_newsletter({"title": "x"})
-        self.assertEqual(result["status"], "skipped")
-        self.assertIn("do not invent", result["reason"].lower())
+    def test_newsletter_is_not_a_publish_target(self):
+        from scripts.distribution import CHANNELS, FORMAT_CHANNEL_MATRIX
+
+        self.assertNotIn("newsletter", CHANNELS)
+        for chans in FORMAT_CHANNEL_MATRIX.values():
+            self.assertNotIn("newsletter", chans)
 
 
 if __name__ == "__main__":

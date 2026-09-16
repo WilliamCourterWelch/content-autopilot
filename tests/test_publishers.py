@@ -6,7 +6,6 @@ from unittest import mock
 
 from scripts.publishers import (
     publish_artifacts,
-    publish_drive,
     publish_social,
     publish_transistor,
     publish_youtube,
@@ -51,17 +50,23 @@ class PublisherSkipTests(unittest.TestCase):
         self.assertEqual(result["status"], "skipped")
         self.assertIn("TODO", result["reason"])
 
-    def test_drive_and_social_skip_without_creds(self):
+    def test_social_skips_without_creds(self):
         with tempfile.NamedTemporaryFile(suffix=".png") as f:
             f.write(b"png")
             f.flush()
             with mock.patch.dict(os.environ, {}, clear=True):
-                drive = publish_drive(f.name, "Title")
                 social = publish_social(f.name, "Title")
-        self.assertEqual(drive["status"], "skipped")
         self.assertEqual(social["status"], "skipped")
-        self.assertIn("GOOGLE_DRIVE_FOLDER_ID", drive["reason"])
         self.assertIn("TODO", social["reason"])
+
+    def test_drive_is_not_a_publish_destination(self):
+        from scripts import publishers
+        from scripts.distribution import CHANNELS, FORMAT_CHANNEL_MATRIX
+
+        self.assertFalse(hasattr(publishers, "publish_drive"))
+        self.assertNotIn("drive", CHANNELS)
+        for fmt, chans in FORMAT_CHANNEL_MATRIX.items():
+            self.assertNotIn("drive", chans, msg=fmt)
 
     def test_thin_site_blocks_publish_bundle(self):
         results = publish_artifacts(
