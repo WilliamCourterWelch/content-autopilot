@@ -1,5 +1,19 @@
 # Changelog
 
+## 0.4.0.0 — 2026-09-16
+
+### Changed
+- Google Drive is no longer a publish destination. Drive is not an audience. Local `data/` scratch stays; no `GOOGLE_DRIVE_*` distribution.
+- Publish targets only: Transistor/Spotify (audio), YouTube (video), globalhighlevel.com pillar/money-page folds, social stubs
+- Topic picker scrapes recent help.gohighlevel.com / changelog for GHL AI keywords, hard-dedupes vs Transistor + published.json + site, ranks money-adjacent, default `--limit 1`
+
+### Removed
+- `publish_drive` and Drive column from DISTRIBUTION.md / `.env.template`
+
+### Notes
+- mind-map / quiz / flashcards stay local scratch only
+- `--force` still does not bypass dedupe
+
 ## 0.3.0.0 — 2026-09-16
 
 ### Added
