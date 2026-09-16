@@ -106,6 +106,13 @@ def run_episode(topic=None):
 
     log(f"Content: {content.get('title', 'Untitled')}")
 
+    from scripts.dedupe import check_already_done
+
+    hit = check_already_done(content)
+    if hit.duplicate:
+        log(f"SKIP (dedupe): {hit.reason}")
+        return False
+
     # Step 2: Generate audio with NotebookLM
     log("Generating podcast audio (this takes a few minutes)...")
     try:
