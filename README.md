@@ -47,8 +47,45 @@ python3 run.py --batch
 # Run on a specific topic
 python3 run.py --topic "How to train a puppy"
 
+# GHL AI Studio lane — one help article, selectable NotebookLM formats
+python3 run.py --ai-lane
+python3 run.py --ai-lane --formats audio,report,infographic --limit 1
+python3 run.py --ai-lane --url https://help.gohighlevel.com/support/solutions/articles/155000004401-how-to-set-up-a-conversation-ai-bot --dry-run
+
 # Start the automatic scheduler (runs every 25 hours)
 python3 scheduler.py
+```
+
+## GHL AI multi-format lane
+
+After the 2026-09-16 podcast canary ([live episode](https://share.transistor.fm/s/81da6aeb)), this repo can turn **one** recent GoHighLevel AI help/changelog article into NotebookLM Studio artifacts.
+
+Sources (allowlisted):
+
+- `help.gohighlevel.com` articles about Conversation AI, Voice AI, AI employees/agents
+- changelog / ideas / updates hosts, only when the same AI keywords match
+
+Random non-AI how-tos (calendar, payments, white-label, etc.) are rejected by default. Pass a single `--url` to pin a topic. `--limit` defaults to **1**. Above 3 requires `--force` so this lane cannot volume-blast.
+
+Formats match `notebooklm generate <type>` in notebooklm-py 0.8:
+
+`audio`, `video`, `slide-deck`, `report`, `infographic`, `mind-map`, `quiz`, `flashcards`
+
+Artifacts download under `data/` (`audio/`, `video/`, `slides/`, `reports/`, …). Publishers:
+
+| Channel | Status |
+|---------|--------|
+| Transistor | Real — `audio_url` authorize + draft-then-`PATCH /publish` |
+| YouTube / Drive / social | Hooks that run only when real credential **files/env** exist; otherwise skip with a TODO. No invented keys. |
+
+### Anti-thin-site rule (HARD)
+
+Do **not** publish thin new HTML pages on [globalhighlevel.com](https://globalhighlevel.com). The AI lane never writes the static blog builder to that host. `SITE_URL` pointing at `globalhighlevel.com` is treated as a blocked destination. Distribute through Transistor, YouTube, social, and Drive instead.
+
+Dry-run (no NotebookLM, no secrets):
+
+```bash
+python3 run.py --ai-lane --formats audio,report,infographic --limit 1 --dry-run
 ```
 
 ## Monthly Cost
