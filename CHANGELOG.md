@@ -1,5 +1,19 @@
 # Changelog
 
+## 0.3.0.0 — 2026-09-16
+
+### Added
+- HARD dedupe gate before generate/publish: `data/known-episodes.json`, `data/published.json`, Transistor show episodes, optional globalhighlevel.com slugs
+- Committed fingerprint for the 2026-09-16 whitelabel canary (https://share.transistor.fm/s/81da6aeb)
+- DISTRIBUTION.md format→channel matrix and auth table
+- Drive archive upload when folder id + local token/service-account file exist
+- globalhighlevel.com channel is upgrade-into-existing-pillar only (fold brief, no new HTML)
+- Beehiiv/Substack stub (no invented list)
+
+### Notes
+- `--force` does not bypass dedupe
+- Default AI lane remains `--limit 1`
+
 ## 0.2.0.0 — 2026-09-16
 
 ### Added
