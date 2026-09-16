@@ -71,12 +71,18 @@ Formats match `notebooklm generate <type>` in notebooklm-py 0.8:
 
 `audio`, `video`, `slide-deck`, `report`, `infographic`, `mind-map`, `quiz`, `flashcards`
 
-Artifacts download under `data/` (`audio/`, `video/`, `slides/`, `reports/`, …). Publishers:
+Artifacts download under `data/` (`audio/`, `video/`, `slides/`, `reports/`, …) then go to the channels in [DISTRIBUTION.md](DISTRIBUTION.md).
 
 | Channel | Status |
 |---------|--------|
-| Transistor | Real — `audio_url` authorize + draft-then-`PATCH /publish` |
-| YouTube / Drive / social | Hooks that run only when real credential **files/env** exist; otherwise skip with a TODO. No invented keys. |
+| Transistor | Live — Spotify/Apple via `audio_url` + draft-then-`PATCH /publish` |
+| Google Drive | Live archive when `GOOGLE_DRIVE_FOLDER_ID` + token file exist |
+| YouTube / social / Beehiiv | Stubs until real channel/list auth exists. No invented keys. |
+| globalhighlevel.com | Upgrade existing pillars only. Never thin new HTML. |
+
+See [DISTRIBUTION.md](DISTRIBUTION.md) for the format→channel matrix and auth needed per channel.
+
+**Dedupe (HARD):** before generate or publish, skip any topic already in `data/known-episodes.json`, `data/published.json`, the Transistor show, or an existing globalhighlevel.com slug. The 2026-09-16 [whitelabel canary](https://share.transistor.fm/s/81da6aeb) is in the known list so it cannot ship twice.
 
 ### Anti-thin-site rule (HARD)
 
@@ -123,7 +129,10 @@ podcast-pipeline/
 │   └── blog.py           ← writes blog posts (Claude)
 ├── data/
 │   ├── topics.json       ← manual topics list
-│   └── published.json    ← log of all published episodes
+│   ├── published.json       ← local log (gitignored)
+│   ├── known-episodes.json  ← committed fingerprints (incl. whitelabel canary)
+│   └── pillar-pages.json    ← existing globalhighlevel.com money pages
+├── DISTRIBUTION.md       ← format → channel map + auth
 └── site/
     └── build.py          ← static site generator for blog
 ```

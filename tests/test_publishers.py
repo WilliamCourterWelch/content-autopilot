@@ -60,7 +60,7 @@ class PublisherSkipTests(unittest.TestCase):
                 social = publish_social(f.name, "Title")
         self.assertEqual(drive["status"], "skipped")
         self.assertEqual(social["status"], "skipped")
-        self.assertIn("TODO", drive["reason"])
+        self.assertIn("GOOGLE_DRIVE_FOLDER_ID", drive["reason"])
         self.assertIn("TODO", social["reason"])
 
     def test_thin_site_blocks_publish_bundle(self):

@@ -19,6 +19,7 @@ from urllib.parse import quote_plus, urljoin, urlparse
 import requests
 from bs4 import BeautifulSoup
 
+from scripts.dedupe import check_already_done
 from scripts.formats import DEFAULT_AI_LANE_FORMATS, parse_formats
 from scripts.publishers import publish_artifacts
 from scripts.source_filter import classify_ghl_ai_source, filter_sources, is_thin_site_destination
@@ -169,6 +170,10 @@ def discover_ai_sources(limit: int = 1, extra_urls=None) -> list[dict]:
             "matched": list(verdict.matched),
             "kind": verdict.kind,
         }
+        hit = check_already_done(page, check_transistor=False, check_site=False)
+        if hit.duplicate:
+            log(f"SKIP discover (dedupe): {hit.reason}")
+            continue
         contents.append(page)
         if len(contents) >= limit:
             break
@@ -233,6 +238,7 @@ def run_ai_lane(
     print(f"  formats: {', '.join(requested)}")
     print(f"  topics:  {len(topics)} (default canary is 1)")
     print("  rule:    no thin new HTML on globalhighlevel.com")
+    print("  gate:    skip if already in published.json / Transistor / known canary")
     print()
 
     if not topics:
@@ -246,6 +252,21 @@ def run_ai_lane(
         log(f"  url: {content.get('source_url')}")
         log(f"  filter: {filt.get('reason', 'ok')}")
 
+        hit = check_already_done(content)
+        if hit.duplicate:
+            log(f"SKIP (dedupe): {hit.reason}")
+            results.append(
+                {
+                    "title": content.get("title"),
+                    "source_url": content.get("source_url"),
+                    "formats": requested,
+                    "status": "skipped-duplicate",
+                    "dedupe": {"reason": hit.reason, "source": hit.source},
+                    "filter": filt,
+                }
+            )
+            continue
+
         if dry_run:
             results.append(
                 {
@@ -253,6 +274,7 @@ def run_ai_lane(
                     "source_url": content.get("source_url"),
                     "formats": requested,
                     "status": "dry-run",
+                    "dedupe": {"reason": hit.reason},
                     "filter": filt,
                 }
             )
@@ -289,7 +311,7 @@ def run_ai_lane(
                 log(f"  {pub.get('channel')}: {pub.get('status')} — {pub.get('reason')}")
 
         if skip_blog:
-            log("Skipping blog/HTML site build (anti-thin-site rule).")
+            log("No thin new HTML. Site channel is upgrade-into-existing-pillar only.")
 
         record = {
             "title": seo_data.get("title", content.get("title", "")),
