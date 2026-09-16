@@ -7,6 +7,7 @@ HARD:
   - never invent credentials
   - never spray thin new HTML onto globalhighlevel.com
   - only fold into existing pillars when a match exists
+  - Drive is not an audience; local scratch under data/ is fine
 """
 
 from __future__ import annotations
@@ -21,18 +22,6 @@ from scripts.source_filter import is_thin_site_destination
 
 BASE_DIR = Path(__file__).parent.parent
 UPGRADE_DIR = BASE_DIR / "data" / "site-upgrades"
-
-MIME_BY_EXT = {
-    ".m4a": "audio/mp4",
-    ".mp3": "audio/mpeg",
-    ".mp4": "video/mp4",
-    ".pdf": "application/pdf",
-    ".pptx": "application/vnd.openxmlformats-officedocument.presentationml.presentation",
-    ".md": "text/markdown",
-    ".png": "image/png",
-    ".json": "application/json",
-    ".csv": "text/csv",
-}
 
 
 def _missing(env_names):
@@ -106,73 +95,6 @@ def publish_youtube(video_path, title, description=""):
             "TODO: credentials files are present — wire googleapiclient videos.insert "
             f"for {title!r} ({video_path}). Channel auth later."
         ),
-    )
-
-
-def _drive_credentials():
-    token = os.getenv("GOOGLE_DRIVE_TOKEN")
-    creds_path = os.getenv("GOOGLE_DRIVE_CREDENTIALS") or os.getenv("GOOGLE_APPLICATION_CREDENTIALS")
-    if token and Path(token).exists():
-        from google.oauth2.credentials import Credentials
-
-        return Credentials.from_authorized_user_file(
-            token, scopes=["https://www.googleapis.com/auth/drive.file"]
-        )
-    if creds_path and Path(creds_path).exists():
-        from google.oauth2 import service_account
-
-        return service_account.Credentials.from_service_account_file(
-            creds_path, scopes=["https://www.googleapis.com/auth/drive.file"]
-        )
-    return None
-
-
-def publish_drive(artifact_path, title, mime_type=""):
-    """Archive one artifact into GOOGLE_DRIVE_FOLDER_ID. Live when creds exist."""
-    if not artifact_path or not Path(str(artifact_path)).exists():
-        return _result("drive", "skipped", "no local artifact to upload")
-    folder = (os.getenv("GOOGLE_DRIVE_FOLDER_ID") or "").strip()
-    if not folder:
-        return _result(
-            "drive",
-            "skipped",
-            "missing GOOGLE_DRIVE_FOLDER_ID — folder id is config, not a secret. "
-            "Do not invent one.",
-        )
-    creds = _drive_credentials()
-    if creds is None:
-        return _result(
-            "drive",
-            "skipped",
-            "missing GOOGLE_DRIVE_TOKEN or GOOGLE_DRIVE_CREDENTIALS file. "
-            "Do not invent tokens.",
-        )
-    ext = Path(artifact_path).suffix.lower()
-    mime = mime_type or MIME_BY_EXT.get(ext, "application/octet-stream")
-    try:
-        from googleapiclient.discovery import build
-        from googleapiclient.http import MediaFileUpload
-
-        service = build("drive", "v3", credentials=creds, cache_discovery=False)
-        media = MediaFileUpload(str(artifact_path), mimetype=mime, resumable=True)
-        created = (
-            service.files()
-            .create(
-                body={"name": Path(artifact_path).name, "parents": [folder]},
-                media_body=media,
-                fields="id, webViewLink",
-                supportsAllDrives=True,
-            )
-            .execute()
-        )
-    except Exception as exc:
-        return _result("drive", "error", f"Drive files.create failed: {exc}")
-    return _result(
-        "drive",
-        "published",
-        f"archived {title!r} in folder {folder}",
-        url=created.get("webViewLink", ""),
-        extra={"id": created.get("id", "")},
     )
 
 
@@ -286,31 +208,13 @@ def publish_social(artifact_path, title, description=""):
     )
 
 
-def publish_newsletter(content, seo_data=None, artifact_path=""):
-    """Beehiiv / Substack. Stub unless GHL already has a list. Do not invent one."""
-    beehiiv = (os.getenv("BEEHIIV_API_KEY") or "").strip()
-    substack = (os.getenv("SUBSTACK_PUBLICATION_URL") or "").strip()
-    if not beehiiv and not substack:
-        return _result(
-            "newsletter",
-            "skipped",
-            "TODO: Beehiiv/Substack stub. No BEEHIIV_API_KEY or "
-            "SUBSTACK_PUBLICATION_URL — do not invent a list.",
-        )
-    return _result(
-        "newsletter",
-        "skipped",
-        "TODO: publication config present — wire Beehiiv/Substack only against "
-        "an existing GHL list. Stub only.",
-    )
-
-
 def publish_artifacts(artifacts, content, seo_data=None, channels=None):
     """
-    Fan artifacts to the distribution map.
+    Fan artifacts to the audience map.
 
     Default channels come from FORMAT_CHANNEL_MATRIX. Missing creds skip.
     Thin new globalhighlevel.com pages are blocked.
+    Drive is not a destination. Empty-matrix formats stay in data/.
     """
     seo_data = seo_data or {}
     title = seo_data.get("title") or content.get("title") or "GHL AI"
@@ -320,7 +224,7 @@ def publish_artifacts(artifacts, content, seo_data=None, channels=None):
 
     wanted = set(channels) if channels else set()
     if not wanted:
-        for fmt in by_fmt or {"audio": {}}:
+        for fmt in by_fmt:
             wanted.update(FORMAT_CHANNEL_MATRIX.get(fmt, ()))
         if not by_fmt:
             wanted.update(CHANNELS)
@@ -349,22 +253,11 @@ def publish_artifacts(artifacts, content, seo_data=None, channels=None):
         video = by_fmt.get("video") or {}
         results.append(publish_youtube(video.get("path"), title, description=description))
 
-    if "drive" in wanted:
-        if artifacts:
-            for art in artifacts:
-                results.append(publish_drive(art.get("path"), f"{title} ({art.get('format')})"))
-        else:
-            results.append(publish_drive("", title))
-
     if "ghl-site" in wanted:
         results.append(publish_ghl_site(content, seo_data=seo_data, artifacts=artifacts or []))
 
     if "social" in wanted:
         visual = by_fmt.get("infographic") or by_fmt.get("video") or by_fmt.get("audio") or {}
         results.append(publish_social(visual.get("path"), title, description=description))
-
-    if "newsletter" in wanted:
-        report = by_fmt.get("report") or {}
-        results.append(publish_newsletter(content, seo_data=seo_data, artifact_path=report.get("path")))
 
     return results

@@ -1,34 +1,49 @@
 # Distribution map
 
-Studio artifacts do not sit in `data/` as the end state. Each format maps to owned channels. Missing auth skips with a log. **No invented credentials.**
+Studio artifacts do not sit in `data/` as the end state unless the format has no audience. Each format maps to owned channels. Missing auth skips with a log. **No invented credentials.**
 
-Default AI lane: `--limit 1`. Dedupe gate runs before generate/publish.
+**Google Drive is not a publish destination.** Drive is not an audience. Optional local scratch under `data/` is fine. Do not treat a Drive folder as distribution.
+
+Default AI lane: `--limit 1`. Topic picker + dedupe gate run before generate/publish.
+
+## Topic picker
+
+`scripts/topic_picker.py` chooses what to generate. Pipeline:
+
+1. **Scrape** recent `help.gohighlevel.com` search + changelog indexes (`ideas.gohighlevel.com/changelog`, `changelog.gohighlevel.com`, `updates.gohighlevel.com`) for GHL AI keywords (Conversation AI, Voice AI, agents, AI employee, AI receptionist, …)
+2. **Hard dedupe** against Transistor show episodes, `data/published.json`, `data/known-episodes.json`, and optional globalhighlevel.com slugs / pillars
+3. **Rank** remaining topics by money-adjacent score (Conversation AI / Voice AI / AI employee / booking / inbound / outbound beat generic chatbot how-tos; changelog + last-90-day dates get a bump)
+4. **Return** the top N. Default `--limit 1`. Above 3 requires `--force`
+
+Pinned `--url` still bypasses ranking but not the AI allowlist or the generate/publish dedupe gate.
 
 ## Format → channel
 
-| Format | Transistor (Spotify/Apple) | YouTube | Drive archive | globalhighlevel.com | Social (LI/X/FB) | Beehiiv/Substack |
-|--------|----------------------------|---------|---------------|---------------------|------------------|------------------|
-| audio | **live** | — | live (when folder + token) | — | stub | — |
-| video | — | stub (channel OAuth later) | live (when folder + token) | — | stub | — |
-| slide-deck | — | — | live | upgrade existing pillar only | — | — |
-| report | — | — | live | upgrade existing pillar only | — | stub |
-| infographic | — | — | live | upgrade existing pillar only | stub | — |
-| mind-map | — | — | live | — | — | — |
-| quiz | — | — | live | — | — | — |
-| flashcards | — | — | live | — | — | — |
+Publish targets only: Transistor/Spotify (audio), YouTube (video), globalhighlevel.com pillar/money-page **folds** (no thin new posts), social stubs.
 
-Source of truth in code: `scripts/distribution.py`.
+| Format | Transistor (Spotify/Apple) | YouTube | globalhighlevel.com | Social (LI/X/FB) | Local scratch |
+|--------|----------------------------|---------|---------------------|------------------|---------------|
+| audio | **live** | — | — | stub | `data/audio/` |
+| video | — | stub (channel OAuth later) | — | stub | `data/video/` |
+| slide-deck | — | — | upgrade existing pillar only | — | `data/slides/` |
+| report | — | — | upgrade existing pillar only | — | `data/reports/` |
+| infographic | — | — | upgrade existing pillar only | stub | `data/infographics/` |
+| mind-map | — | — | — | — | **only** (`data/mindmaps/`) |
+| quiz | — | — | — | — | **only** (`data/quizzes/`) |
+| flashcards | — | — | — | — | **only** (`data/flashcards/`) |
+
+Source of truth in code: `scripts/distribution.py`. There is no Drive column.
 
 ## Auth per channel
 
 | Channel | Status | Env (never commit values) | Notes |
 |---------|--------|---------------------------|-------|
 | Transistor | live | `TRANSISTOR_API_KEY`, `TRANSISTOR_SHOW_ID` | Draft then `PATCH /publish`. Feeds Spotify, Apple, Amazon. Dedupe lists show episodes first. |
-| Google Drive | live | `GOOGLE_DRIVE_FOLDER_ID` (config) + `GOOGLE_DRIVE_TOKEN` or `GOOGLE_DRIVE_CREDENTIALS` | Artifact archive. Folder id is not a secret; token files stay local. |
 | YouTube | stub | `YOUTUBE_CLIENT_SECRETS`, `YOUTUBE_TOKEN` | Need channel auth later. No client ids in repo. |
 | globalhighlevel.com | **upgrade-only** | `GHL_PILLAR_PAGES` or `data/pillar-pages.json`; optional `GHL_SITE_UPGRADE_WEBHOOK` | Fold into an existing pillar/money page. **NEVER spray a thin new HTML post.** Prior Google demotion came from ~850 thin NotebookLM pages. |
 | Social | stub | `SOCIAL_BUFFER_ACCESS_TOKEN` or `SOCIAL_API_TOKEN` | LinkedIn / X / Facebook. |
-| Beehiiv / Substack | stub | `BEEHIIV_API_KEY` or `SUBSTACK_PUBLICATION_URL` | Only if GHL already has a list. Do not invent a publication. |
+
+`GOOGLE_DRIVE_*` is not used. A local folder is scratch, not distribution.
 
 ## Dedupe gate (HARD)
 
@@ -39,7 +54,7 @@ Before generate or publish, skip if the topic is already done:
 3. Transistor show episodes — title / source fingerprint (when API keys exist)
 4. Optional: existing `globalhighlevel.com` slugs (`GHL_SITE_DEDUPE_URL` / `SITE_URL`) and pillar pages
 
-`--force` does **not** bypass this gate. The whitelabel help article must never ship a second episode.
+`--force` does **not** bypass this gate. The whitelabel help article must never ship a second episode. The topic picker applies the same gate before ranking.
 
 ## Anti-thin-site rule
 

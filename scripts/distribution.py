@@ -3,21 +3,36 @@ Format → channel distribution map.
 
 Source of truth for DISTRIBUTION.md and the publisher dispatcher.
 Never invent credentials. Never spray thin HTML onto globalhighlevel.com.
+
+Google Drive is NOT a publish destination. Drive is not an audience.
+Local scratch under data/ is fine; do not treat a Drive folder as distribution.
+
+Publish targets only:
+  - Transistor / Spotify (audio)
+  - YouTube (video)
+  - globalhighlevel.com pillar / money-page FOLDS only
+  - social stubs
 """
 
 from __future__ import annotations
 
-# status: live | stub | upgrade-only
+# status: live | stub | upgrade-only | local-scratch
+# Empty channel tuple = local scratch only (data/), not an audience.
 FORMAT_CHANNEL_MATRIX = {
-    "audio": ("transistor", "drive", "social"),
-    "video": ("youtube", "drive", "social"),
-    "slide-deck": ("drive", "ghl-site"),
-    "report": ("drive", "ghl-site", "newsletter"),
-    "infographic": ("drive", "social", "ghl-site"),
-    "mind-map": ("drive",),
-    "quiz": ("drive",),
-    "flashcards": ("drive",),
+    "audio": ("transistor", "social"),
+    "video": ("youtube", "social"),
+    "slide-deck": ("ghl-site",),
+    "report": ("ghl-site",),
+    "infographic": ("ghl-site", "social"),
+    "mind-map": (),
+    "quiz": (),
+    "flashcards": (),
 }
+
+# Formats that stay in data/ and never fan out to a channel.
+LOCAL_SCRATCH_FORMATS = ("mind-map", "quiz", "flashcards")
+
+PUBLISH_CHANNELS = ("transistor", "youtube", "ghl-site", "social")
 
 CHANNELS = {
     "transistor": {
@@ -26,22 +41,6 @@ CHANNELS = {
         "formats": ("audio",),
         "auth": ("TRANSISTOR_API_KEY", "TRANSISTOR_SHOW_ID"),
         "notes": "Draft then PATCH /publish. Dedupe against show episodes first.",
-    },
-    "drive": {
-        "status": "live",
-        "owns": "Google Drive artifacts archive",
-        "formats": (
-            "audio",
-            "video",
-            "slide-deck",
-            "report",
-            "infographic",
-            "mind-map",
-            "quiz",
-            "flashcards",
-        ),
-        "auth": ("GOOGLE_DRIVE_FOLDER_ID", "GOOGLE_DRIVE_TOKEN or GOOGLE_DRIVE_CREDENTIALS"),
-        "notes": "Folder id is config, not a secret. Token/service-account files stay local.",
     },
     "youtube": {
         "status": "stub",
@@ -67,18 +66,16 @@ CHANNELS = {
         "auth": ("SOCIAL_BUFFER_ACCESS_TOKEN or SOCIAL_API_TOKEN",),
         "notes": "Stub until a real Buffer/native token exists.",
     },
-    "newsletter": {
-        "status": "stub",
-        "owns": "Beehiiv / Substack",
-        "formats": ("report",),
-        "auth": ("BEEHIIV_API_KEY or SUBSTACK_PUBLICATION_URL",),
-        "notes": "Stub only unless GHL already has a list. Do not invent a publication.",
-    },
 }
 
 
 def channels_for_format(fmt: str) -> tuple[str, ...]:
-    return FORMAT_CHANNEL_MATRIX.get(fmt, ("drive",))
+    """Audience channels for a Studio format. Empty = local scratch only."""
+    return FORMAT_CHANNEL_MATRIX.get(fmt, ())
+
+
+def is_local_scratch(fmt: str) -> bool:
+    return not channels_for_format(fmt)
 
 
 def required_auth(channel: str) -> tuple[str, ...]:

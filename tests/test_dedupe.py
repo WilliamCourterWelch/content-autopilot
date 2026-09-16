@@ -159,14 +159,27 @@ class DistributionMatrixTests(unittest.TestCase):
         self.assertEqual(CHANNELS["ghl-site"]["status"], "upgrade-only")
         self.assertIn("report", CHANNELS["ghl-site"]["formats"])
 
-    def test_newsletter_is_stub(self):
-        self.assertEqual(CHANNELS["newsletter"]["status"], "stub")
+    def test_drive_and_newsletter_are_not_audiences(self):
+        self.assertNotIn("drive", CHANNELS)
+        self.assertNotIn("newsletter", CHANNELS)
+        for fmt, chans in FORMAT_CHANNEL_MATRIX.items():
+            self.assertNotIn("drive", chans, msg=fmt)
+            self.assertNotIn("newsletter", chans, msg=fmt)
 
-    def test_every_studio_format_has_a_channel(self):
+    def test_every_studio_format_is_in_matrix(self):
         from scripts.formats import STUDIO_FORMATS
 
         for fmt in STUDIO_FORMATS:
-            self.assertTrue(FORMAT_CHANNEL_MATRIX.get(fmt), msg=fmt)
+            self.assertIn(fmt, FORMAT_CHANNEL_MATRIX, msg=fmt)
+
+    def test_local_scratch_formats_have_no_audience(self):
+        for fmt in ("mind-map", "quiz", "flashcards"):
+            self.assertEqual(channels_for_format(fmt), ())
+
+    def test_audio_does_not_go_to_drive(self):
+        self.assertEqual(channels_for_format("audio"), ("transistor", "social"))
+        self.assertEqual(channels_for_format("video"), ("youtube", "social"))
+        self.assertEqual(channels_for_format("report"), ("ghl-site",))
 
 
 if __name__ == "__main__":

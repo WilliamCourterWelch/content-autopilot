@@ -60,33 +60,35 @@ python3 scheduler.py
 
 After the 2026-09-16 podcast canary ([live episode](https://share.transistor.fm/s/81da6aeb)), this repo can turn **one** recent GoHighLevel AI help/changelog article into NotebookLM Studio artifacts.
 
+**Topic picker** (`scripts/topic_picker.py`): scrape recent `help.gohighlevel.com` / changelog for GHL AI keywords (Conversation AI, Voice AI, agents, AI employee, …) → hard dedupe vs Transistor + `published.json` + site → rank new money-adjacent → default `--limit 1`. Pass a single `--url` to pin a topic. Above 3 requires `--force` so this lane cannot volume-blast.
+
 Sources (allowlisted):
 
 - `help.gohighlevel.com` articles about Conversation AI, Voice AI, AI employees/agents
 - changelog / ideas / updates hosts, only when the same AI keywords match
 
-Random non-AI how-tos (calendar, payments, white-label, etc.) are rejected by default. Pass a single `--url` to pin a topic. `--limit` defaults to **1**. Above 3 requires `--force` so this lane cannot volume-blast.
+Random non-AI how-tos (calendar, payments, white-label, etc.) are rejected by default.
 
 Formats match `notebooklm generate <type>` in notebooklm-py 0.8:
 
 `audio`, `video`, `slide-deck`, `report`, `infographic`, `mind-map`, `quiz`, `flashcards`
 
-Artifacts download under `data/` (`audio/`, `video/`, `slides/`, `reports/`, …) then go to the channels in [DISTRIBUTION.md](DISTRIBUTION.md).
+Artifacts download under `data/` (`audio/`, `video/`, `slides/`, `reports/`, …) then go to the **audience** channels in [DISTRIBUTION.md](DISTRIBUTION.md). Local scratch is optional. **Drive is not a publish destination.**
 
 | Channel | Status |
 |---------|--------|
-| Transistor | Live — Spotify/Apple via `audio_url` + draft-then-`PATCH /publish` |
-| Google Drive | Live archive when `GOOGLE_DRIVE_FOLDER_ID` + token file exist |
-| YouTube / social / Beehiiv | Stubs until real channel/list auth exists. No invented keys. |
-| globalhighlevel.com | Upgrade existing pillars only. Never thin new HTML. |
+| Transistor / Spotify | Live — `audio_url` + draft-then-`PATCH /publish` |
+| YouTube | Stub until channel OAuth exists. No invented keys. |
+| globalhighlevel.com | Fold into existing pillar/money pages only. Never thin new HTML. |
+| Social (LI/X/FB) | Stub until a real Buffer/native token exists. |
 
-See [DISTRIBUTION.md](DISTRIBUTION.md) for the format→channel matrix and auth needed per channel.
+See [DISTRIBUTION.md](DISTRIBUTION.md) for the format→channel matrix, topic picker, and auth needed per channel.
 
 **Dedupe (HARD):** before generate or publish, skip any topic already in `data/known-episodes.json`, `data/published.json`, the Transistor show, or an existing globalhighlevel.com slug. The 2026-09-16 [whitelabel canary](https://share.transistor.fm/s/81da6aeb) is in the known list so it cannot ship twice.
 
 ### Anti-thin-site rule (HARD)
 
-Do **not** publish thin new HTML pages on [globalhighlevel.com](https://globalhighlevel.com). The AI lane never writes the static blog builder to that host. `SITE_URL` pointing at `globalhighlevel.com` is treated as a blocked destination. Distribute through Transistor, YouTube, social, and Drive instead.
+Do **not** publish thin new HTML pages on [globalhighlevel.com](https://globalhighlevel.com). The AI lane never writes the static blog builder to that host. `SITE_URL` pointing at `globalhighlevel.com` is treated as a blocked destination. Distribute through Transistor/Spotify, YouTube, social stubs, and pillar folds only.
 
 Dry-run (no NotebookLM, no secrets):
 
@@ -123,6 +125,7 @@ podcast-pipeline/
 │   │   ├── rss.py        ← reads RSS feeds
 │   │   └── manual.py     ← researches topics from scratch
 │   ├── notebooklm.py     ← generates podcast audio
+│   ├── topic_picker.py   ← scrape help/changelog → dedupe → rank money-adjacent
 │   ├── seo.py            ← writes SEO metadata (Claude)
 │   ├── upload.py         ← uploads to Transistor.fm
 │   ├── transcribe.py     ← transcribes audio (Gemini)
