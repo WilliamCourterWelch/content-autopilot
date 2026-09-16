@@ -38,6 +38,23 @@ class AiLaneCanaryTests(unittest.TestCase):
         self.assertEqual(topics[0]["source_url"], url)
         self.assertTrue(topics[0]["_ai_filter"]["matched"])
 
+    def test_scrape_rejects_off_allowlist_redirect(self):
+        class _Resp:
+            url = "http://127.0.0.1/secret"
+            text = "<html><h1>Conversation AI</h1><main>" + ("x" * 200) + "</main></html>"
+
+            def raise_for_status(self):
+                return None
+
+        with mock.patch("scripts.ai_lane.requests.get", return_value=_Resp()):
+            from scripts.ai_lane import scrape_article
+
+            self.assertIsNone(
+                scrape_article(
+                    "https://help.gohighlevel.com/support/solutions/articles/155000004401-conversation-ai"
+                )
+            )
+
 
 if __name__ == "__main__":
     unittest.main()

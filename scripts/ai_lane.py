@@ -74,6 +74,12 @@ def scrape_article(url: str) -> dict | None:
     except requests.RequestException:
         return None
 
+    # Re-check the final URL so a help.gohighlevel.com redirect cannot leave the allowlist.
+    final_url = resp.url or url
+    if not classify_ghl_ai_source(final_url, require_ai=False).accepted:
+        return None
+    url = final_url
+
     soup = BeautifulSoup(resp.text, "html.parser")
     for tag in soup.find_all(["nav", "footer", "aside", "script", "style", "header"]):
         tag.decompose()
@@ -180,7 +186,6 @@ def resolve_topics(url=None, limit=1, force=False) -> list[dict]:
     if url:
         if is_thin_site_destination(url):
             raise ValueError("HARD: no thin new HTML pages on globalhighlevel.com")
-        verdict = classify_ghl_ai_source(url)
         page = scrape_article(url) or {
             "title": url.rsplit("/", 1)[-1].replace("-", " "),
             "body": "",
