@@ -14,7 +14,6 @@ import json
 import os
 from datetime import datetime
 from pathlib import Path
-from urllib.parse import quote_plus, urljoin, urlparse
 
 import requests
 from bs4 import BeautifulSoup
@@ -22,26 +21,12 @@ from bs4 import BeautifulSoup
 from scripts.dedupe import check_already_done
 from scripts.formats import DEFAULT_AI_LANE_FORMATS, parse_formats
 from scripts.publishers import publish_artifacts
-from scripts.source_filter import classify_ghl_ai_source, filter_sources, is_thin_site_destination
+from scripts.source_filter import classify_ghl_ai_source, is_thin_site_destination
+from scripts.topic_picker import SEED_AI_URLS, pick_topics
 
 BASE_DIR = Path(__file__).parent.parent
 DATA_DIR = BASE_DIR / "data"
 PUBLISHED_FILE = DATA_DIR / "published.json"
-
-# Ready AI-lane candidates from the 2026-09-16 canary report.
-SEED_AI_URLS = (
-    "https://help.gohighlevel.com/support/solutions/articles/155000004401-how-to-set-up-a-conversation-ai-bot",
-    "https://help.gohighlevel.com/support/solutions/articles/155000007796-voice-ai-agent-transfer",
-    "https://help.gohighlevel.com/support/solutions/articles/155000005427-conversation-ai-agents-dashboard",
-)
-
-HELP_SEARCH = "https://help.gohighlevel.com/support/search/solutions?term={term}"
-SEARCH_TERMS = (
-    "Conversation AI",
-    "Voice AI",
-    "AI agent",
-    "AI employee",
-)
 
 # Hard cap so `--limit 50` cannot spray. Override only with --force.
 MAX_TOPICS_WITHOUT_FORCE = 3
@@ -103,76 +88,39 @@ def scrape_article(url: str) -> dict | None:
     }
 
 
-def _discover_search_urls(limit: int) -> list[str]:
-    found = []
-    seen = set()
-    for term in SEARCH_TERMS:
-        if len(found) >= limit * 4:
-            break
-        url = HELP_SEARCH.format(term=quote_plus(term))
-        try:
-            resp = requests.get(url, timeout=15, headers={"User-Agent": USER_AGENT})
-            resp.raise_for_status()
-        except requests.RequestException:
-            continue
-        soup = BeautifulSoup(resp.text, "html.parser")
-        for a in soup.find_all("a", href=True):
-            href = urljoin(url, a["href"]).split("#")[0]
-            path = urlparse(href).path or ""
-            if "/support/solutions/articles/" not in path:
-                continue
-            if href in seen:
-                continue
-            seen.add(href)
-            found.append(href)
-    return found
+def _hydrate_candidate(item: dict) -> dict | None:
+    url = item.get("source_url") or item.get("url") or ""
+    page = scrape_article(url)
+    if not page:
+        page = {
+            "title": item.get("title") or url.rsplit("/", 1)[-1].replace("-", " "),
+            "body": item.get("snippet")
+            or item.get("_ai_filter", {}).get("reason", "GHL AI help article"),
+            "source_url": url,
+            "source_type": "ghl-ai-help",
+        }
+    verdict = classify_ghl_ai_source(page["source_url"], page.get("title", ""), page.get("body", ""))
+    if not verdict.accepted:
+        return None
+    page["_ai_filter"] = {
+        "reason": verdict.reason,
+        "matched": list(verdict.matched),
+        "kind": verdict.kind,
+    }
+    if item.get("_rank") is not None:
+        page["_rank"] = item["_rank"]
+    if item.get("picker_source"):
+        page["picker_source"] = item["picker_source"]
+    return page
 
 
 def discover_ai_sources(limit: int = 1, extra_urls=None) -> list[dict]:
-    """Find GHL AI help/changelog URLs, filter, scrape. Seeds if search is empty."""
-    candidates = []
-    if extra_urls:
-        candidates.extend(extra_urls)
-    candidates.extend(SEED_AI_URLS)
-    try:
-        candidates.extend(_discover_search_urls(limit))
-    except Exception:
-        pass
-
-    # Dedup, skip already published, apply AI allowlist
-    already = published_urls()
-    unique = []
-    seen = set()
-    for url in candidates:
-        if not url or url in seen or url in already:
-            continue
-        seen.add(url)
-        unique.append({"source_url": url, "url": url})
-
-    accepted = filter_sources(unique, require_ai=True)
+    """Picker: scrape help/changelog → hard dedupe → rank money-adjacent → limit."""
+    picked = pick_topics(limit=limit, extra_urls=extra_urls)
     contents = []
-    for item in accepted:
-        url = item.get("source_url") or item.get("url")
-        page = scrape_article(url)
+    for item in picked:
+        page = _hydrate_candidate(item)
         if not page:
-            # URL + slug still passed the filter — keep a thin body so dry-run works.
-            page = {
-                "title": url.rsplit("/", 1)[-1].replace("-", " "),
-                "body": item.get("_ai_filter", {}).get("reason", "GHL AI help article"),
-                "source_url": url,
-                "source_type": "ghl-ai-help",
-            }
-        verdict = classify_ghl_ai_source(page["source_url"], page.get("title", ""), page.get("body", ""))
-        if not verdict.accepted:
-            continue
-        page["_ai_filter"] = {
-            "reason": verdict.reason,
-            "matched": list(verdict.matched),
-            "kind": verdict.kind,
-        }
-        hit = check_already_done(page, check_transistor=False, check_site=False)
-        if hit.duplicate:
-            log(f"SKIP discover (dedupe): {hit.reason}")
             continue
         contents.append(page)
         if len(contents) >= limit:
@@ -236,7 +184,9 @@ def run_ai_lane(
     print("  GHL AI Studio lane")
     print("  ──────────────────")
     print(f"  formats: {', '.join(requested)}")
-    print(f"  topics:  {len(topics)} (default canary is 1)")
+    print(f"  topics:  {len(topics)} (picker default --limit 1)")
+    print("  picker:  scrape help/changelog → dedupe Transistor/published/site → rank money-adjacent")
+    print("  dest:    Transistor/Spotify, YouTube, pillar folds, social stubs. Not Drive.")
     print("  rule:    no thin new HTML on globalhighlevel.com")
     print("  gate:    skip if already in published.json / Transistor / known canary")
     print()
