@@ -1,12 +1,15 @@
 #!/usr/bin/env python3
 """
-Run the podcast pipeline — one episode or a batch.
+Run the podcast pipeline — one episode, a batch, or the GHL AI Studio lane.
 
 Usage:
   python3 run.py                    # one episode from your content source
   python3 run.py --batch            # full batch (up to daily limit)
   python3 run.py --topic "Topic"    # one episode on a specific topic
   python3 run.py --limit 5          # batch of 5 episodes
+  python3 run.py --ai-lane          # one GHL AI help topic → Studio audio
+  python3 run.py --ai-lane --formats audio,report,infographic --limit 1
+  python3 run.py --ai-lane --url https://help.gohighlevel.com/... --dry-run
 """
 
 import argparse
@@ -16,9 +19,12 @@ import sys
 from datetime import datetime
 from pathlib import Path
 
-from dotenv import load_dotenv
+try:
+    from dotenv import load_dotenv
 
-load_dotenv()
+    load_dotenv()
+except ImportError:
+    pass
 
 BASE_DIR = Path(__file__).parent
 DATA_DIR = BASE_DIR / "data"
@@ -197,23 +203,81 @@ def run_episode(topic=None):
     return True
 
 
-def main():
-    parser = argparse.ArgumentParser(description="Run the podcast pipeline")
+def build_parser():
+    parser = argparse.ArgumentParser(description="Run the podcast pipeline or GHL AI Studio lane")
     parser.add_argument("--topic", help="Generate an episode on this specific topic")
     parser.add_argument("--batch", action="store_true", help="Run a full batch")
-    parser.add_argument("--limit", type=int, help="Max episodes to generate")
-    args = parser.parse_args()
+    parser.add_argument("--limit", type=int, help="Max episodes / AI-lane topics (default 1 for --ai-lane)")
+    parser.add_argument(
+        "--ai-lane",
+        action="store_true",
+        help="GHL AI multi-format Studio lane (Conversation AI / Voice AI / agents)",
+    )
+    parser.add_argument(
+        "--formats",
+        help="Studio types for --ai-lane (comma list or 'all'). Default: audio",
+    )
+    parser.add_argument(
+        "--url",
+        help="Single help.gohighlevel.com (or changelog) URL for --ai-lane",
+    )
+    parser.add_argument(
+        "--dry-run",
+        action="store_true",
+        help="AI lane: filter + format parse only (no NotebookLM, no publish)",
+    )
+    parser.add_argument(
+        "--no-publish",
+        action="store_true",
+        help="AI lane: generate and save under data/, skip publishers",
+    )
+    parser.add_argument(
+        "--force",
+        action="store_true",
+        help="AI lane: allow --limit above the canary cap of 3",
+    )
+    return parser
 
-    # Check minimum config
-    if not Path(BASE_DIR / ".env").exists():
-        print("\n  No .env file found. Run setup.py first:\n")
-        print("    python3 setup.py\n")
-        sys.exit(1)
+
+def main(argv=None):
+    parser = build_parser()
+    args = parser.parse_args(argv)
+
+    needs_env = not (args.ai_lane and (args.dry_run or args.no_publish))
+    if needs_env and not args.dry_run and not Path(BASE_DIR / ".env").exists():
+        if not args.ai_lane:
+            print("\n  No .env file found. Run setup.py first:\n")
+            print("    python3 setup.py\n")
+            sys.exit(1)
+
+    if args.ai_lane:
+        from scripts.ai_lane import run_ai_lane
+
+        try:
+            result = run_ai_lane(
+                formats=args.formats,
+                url=args.url,
+                limit=args.limit or 1,
+                dry_run=args.dry_run,
+                no_publish=args.no_publish,
+                force=args.force,
+            )
+        except ValueError as e:
+            print(f"\n  AI lane rejected source: {e}\n")
+            sys.exit(2)
+        if not result.get("ok"):
+            sys.exit(2)
+        return
 
     print()
     print("  Podcast Pipeline")
     print("  ─────────────────")
     print()
+
+    if not Path(BASE_DIR / ".env").exists():
+        print("  No .env file found. Run setup.py first:\n")
+        print("    python3 setup.py\n")
+        sys.exit(1)
 
     if args.topic:
         run_episode(topic=args.topic)

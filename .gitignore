@@ -23,6 +23,14 @@ __pycache__/
 # Data & logs
 data/articles/
 data/audio/
+data/video/
+data/slides/
+data/reports/
+data/infographics/
+data/mindmaps/
+data/quizzes/
+data/flashcards/
+data/published.json
 logs/
 *.log
 

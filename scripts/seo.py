@@ -4,8 +4,18 @@ SEO metadata writer — uses Claude to generate title, description, and tags.
 
 import json
 import os
+from pathlib import Path
 
-import anthropic
+
+def resolve_anthropic_model(base_dir=None):
+    """Read the model name from `.anthropic_model`, then env, then default."""
+    root = Path(base_dir) if base_dir else Path(__file__).parent.parent
+    model_path = root / ".anthropic_model"
+    if model_path.exists():
+        model = model_path.read_text(encoding="utf-8").strip()
+        if model:
+            return model
+    return os.getenv("ANTHROPIC_MODEL", "claude-haiku-4-5-20251001")
 
 
 def write_seo(content, niche=""):
@@ -27,7 +37,10 @@ def write_seo(content, niche=""):
             "tags": [],
         }
 
+    import anthropic
+
     client = anthropic.Anthropic(api_key=api_key)
+    model = resolve_anthropic_model()
 
     podcast_name = os.getenv("PODCAST_NAME", "")
     affiliate_link = os.getenv("AFFILIATE_LINK", "")
@@ -51,7 +64,7 @@ Return a JSON object with:
 Return ONLY valid JSON, no markdown fences."""
 
     response = client.messages.create(
-        model="claude-haiku-4-5-20251001",
+        model=model,
         max_tokens=500,
         messages=[{"role": "user", "content": prompt}],
     )
