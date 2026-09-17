@@ -1,5 +1,19 @@
 # Changelog
 
+## 0.5.0.0 — 2026-09-17
+
+### Added
+- Publish NotebookLM Studio videos to YouTube (`videos.insert`) when `YOUTUBE_CLIENT_SECRETS` + `YOUTUBE_TOKEN` file paths exist
+- Default privacy **unlisted** (`YOUTUBE_PRIVACY=unlisted|public`) for a safe canary on @williamcourterwelch
+- YouTube and Transistor descriptions always include the GHL trial CTA plus `AFFILIATE_LINK` / `GHL_AFFILIATE_LINK`
+- `--formats cinematic-video` aliases to NotebookLM `video`
+
+### Changed
+- YouTube is a live channel, not a stub. OAuth is paths only — never commit the JSON.
+
+### Fixed
+- YouTube failure reasons redact token-shaped values so a quota/OAuth error cannot log secrets
+
 ## 0.4.0.0 — 2026-09-16
 
 ### Changed
