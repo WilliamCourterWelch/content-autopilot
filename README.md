@@ -50,6 +50,7 @@ python3 run.py --topic "How to train a puppy"
 # GHL AI Studio lane — one help article, selectable NotebookLM formats
 python3 run.py --ai-lane
 python3 run.py --ai-lane --formats audio,report,infographic --limit 1
+python3 run.py --ai-lane --formats video --limit 1
 python3 run.py --ai-lane --url https://help.gohighlevel.com/support/solutions/articles/155000004401-how-to-set-up-a-conversation-ai-bot --dry-run
 
 # Start the automatic scheduler (runs every 25 hours)
@@ -77,8 +78,8 @@ Artifacts download under `data/` (`audio/`, `video/`, `slides/`, `reports/`, …
 
 | Channel | Status |
 |---------|--------|
-| Transistor / Spotify | Live — `audio_url` + draft-then-`PATCH /publish` |
-| YouTube | Stub until channel OAuth exists. No invented keys. |
+| Transistor / Spotify | Live — `audio_url` + draft-then-`PATCH /publish`. Descriptions get the trial CTA + `AFFILIATE_LINK` / `GHL_AFFILIATE_LINK`. |
+| YouTube | Live — `videos.insert` to [@williamcourterwelch](https://www.youtube.com/@williamcourterwelch) when OAuth **file paths** exist. Default `YOUTUBE_PRIVACY=unlisted`. No invented keys. |
 | globalhighlevel.com | Fold into existing pillar/money pages only. Never thin new HTML. |
 | Social (LI/X/FB) | Stub until a real Buffer/native token exists. |
 
@@ -90,11 +91,29 @@ See [DISTRIBUTION.md](DISTRIBUTION.md) for the format→channel matrix, topic pi
 
 Do **not** publish thin new HTML pages on [globalhighlevel.com](https://globalhighlevel.com). The AI lane never writes the static blog builder to that host. `SITE_URL` pointing at `globalhighlevel.com` is treated as a blocked destination. Distribute through Transistor/Spotify, YouTube, social stubs, and pillar folds only.
 
+YouTube OAuth is **paths only** (never commit the JSON). On the Grok box:
+
+```bash
+export YOUTUBE_CLIENT_SECRETS=/home/box/.secrets/youtube-oauth-client.json
+export YOUTUBE_TOKEN=/home/box/.secrets/youtube-oauth-token.json
+export YOUTUBE_PRIVACY=unlisted   # or public
+# Optional: bootcamp URL appended to YouTube + Transistor descriptions
+export AFFILIATE_LINK='https://www.gohighlevel.com/...'   # or GHL_AFFILIATE_LINK
+```
+
 Dry-run (no NotebookLM, no secrets):
 
 ```bash
 python3 run.py --ai-lane --formats audio,report,infographic --limit 1 --dry-run
 ```
+
+One video canary (run on the Grok box where those OAuth files live — not from Cloud Agent):
+
+```bash
+python3 run.py --ai-lane --formats video --limit 1
+```
+
+That generates a NotebookLM Studio video, then `publish_youtube` (`videos.insert`) when the cred files exist. Default privacy is **unlisted**. Descriptions always include the trial CTA line plus `AFFILIATE_LINK` / `GHL_AFFILIATE_LINK`.
 
 ## Monthly Cost
 
