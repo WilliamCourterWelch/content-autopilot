@@ -43,11 +43,15 @@ CHANNELS = {
         "notes": "Draft then PATCH /publish. Dedupe against show episodes first.",
     },
     "youtube": {
-        "status": "stub",
-        "owns": "YouTube long-form + Shorts",
+        "status": "live",
+        "owns": "YouTube long-form + Shorts (@williamcourterwelch)",
         "formats": ("video",),
         "auth": ("YOUTUBE_CLIENT_SECRETS", "YOUTUBE_TOKEN"),
-        "notes": "Need channel OAuth later. Do not invent client ids.",
+        "notes": (
+            "videos.insert via googleapiclient. Paths only — never bake secrets. "
+            "YOUTUBE_PRIVACY=unlisted|public (default unlisted). Refresh via "
+            "google.oauth2.credentials + Request."
+        ),
     },
     "ghl-site": {
         "status": "upgrade-only",

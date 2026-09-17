@@ -238,9 +238,11 @@ def run_ai_lane(
         for art in artifacts:
             log(f"  saved {art['format']}: {art['path']}")
 
+        from scripts.seo import with_trial_cta
+
         seo_data = {
             "title": content.get("title"),
-            "description": (content.get("body") or "")[:240],
+            "description": with_trial_cta((content.get("body") or "")[:240]),
             "tags": list((filt.get("matched") or [])[:8]),
         }
         anthropic_key = os.getenv("ANTHROPIC_API_KEY")

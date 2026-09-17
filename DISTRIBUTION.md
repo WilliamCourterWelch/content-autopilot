@@ -24,7 +24,7 @@ Publish targets only: Transistor/Spotify (audio), YouTube (video), globalhighlev
 | Format | Transistor (Spotify/Apple) | YouTube | globalhighlevel.com | Social (LI/X/FB) | Local scratch |
 |--------|----------------------------|---------|---------------------|------------------|---------------|
 | audio | **live** | — | — | stub | `data/audio/` |
-| video | — | stub (channel OAuth later) | — | stub | `data/video/` |
+| video | — | **live** (`videos.insert`, default unlisted) | — | stub | `data/video/` |
 | slide-deck | — | — | upgrade existing pillar only | — | `data/slides/` |
 | report | — | — | upgrade existing pillar only | — | `data/reports/` |
 | infographic | — | — | upgrade existing pillar only | stub | `data/infographics/` |
@@ -39,7 +39,16 @@ Source of truth in code: `scripts/distribution.py`. There is no Drive column.
 | Channel | Status | Env (never commit values) | Notes |
 |---------|--------|---------------------------|-------|
 | Transistor | live | `TRANSISTOR_API_KEY`, `TRANSISTOR_SHOW_ID` | Draft then `PATCH /publish`. Feeds Spotify, Apple, Amazon. Dedupe lists show episodes first. |
-| YouTube | stub | `YOUTUBE_CLIENT_SECRETS`, `YOUTUBE_TOKEN` | Need channel auth later. No client ids in repo. |
+| YouTube | **live** | `YOUTUBE_CLIENT_SECRETS`, `YOUTUBE_TOKEN` (file **paths** only); optional `YOUTUBE_PRIVACY=unlisted\|public` (default **unlisted**) | Channel [@williamcourterwelch](https://www.youtube.com/@williamcourterwelch). `googleapiclient` `videos.insert` + token refresh via `google.oauth2.credentials` + `Request`. On the Grok box: `YOUTUBE_CLIENT_SECRETS=/home/box/.secrets/youtube-oauth-client.json` and `YOUTUBE_TOKEN=/home/box/.secrets/youtube-oauth-token.json`. Never commit those files or paste secrets into git. |
+
+## Description CTA (YouTube + Transistor)
+
+Every YouTube and Transistor description always includes:
+
+1. The plain-English trial line: `Want a GoHighLevel 30-day free trial? Link in the description.`
+2. The bootcamp URL from `AFFILIATE_LINK` or `GHL_AFFILIATE_LINK` (if set — never invent a URL)
+
+Helper: `scripts.seo.with_trial_cta`. Idempotent if the line/link is already present.
 | globalhighlevel.com | **upgrade-only** | `GHL_PILLAR_PAGES` or `data/pillar-pages.json`; optional `GHL_SITE_UPGRADE_WEBHOOK` | Fold into an existing pillar/money page. **NEVER spray a thin new HTML post.** Prior Google demotion came from ~850 thin NotebookLM pages. |
 | Social | stub | `SOCIAL_BUFFER_ACCESS_TOKEN` or `SOCIAL_API_TOKEN` | LinkedIn / X / Facebook. |
 

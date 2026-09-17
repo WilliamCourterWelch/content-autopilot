@@ -151,9 +151,9 @@ class DistributionMatrixTests(unittest.TestCase):
     def test_audio_goes_to_transistor(self):
         self.assertIn("transistor", channels_for_format("audio"))
 
-    def test_video_goes_to_youtube_stub(self):
+    def test_video_goes_to_youtube(self):
         self.assertIn("youtube", channels_for_format("video"))
-        self.assertEqual(CHANNELS["youtube"]["status"], "stub")
+        self.assertEqual(CHANNELS["youtube"]["status"], "live")
 
     def test_site_is_upgrade_only(self):
         self.assertEqual(CHANNELS["ghl-site"]["status"], "upgrade-only")

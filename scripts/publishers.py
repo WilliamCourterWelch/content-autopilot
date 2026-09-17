@@ -14,18 +14,41 @@ from __future__ import annotations
 
 import json
 import os
+import re
 from datetime import datetime
 from pathlib import Path
 
 from scripts.distribution import CHANNELS, FORMAT_CHANNEL_MATRIX
+from scripts.seo import with_trial_cta
 from scripts.source_filter import is_thin_site_destination
 
 BASE_DIR = Path(__file__).parent.parent
 UPGRADE_DIR = BASE_DIR / "data" / "site-upgrades"
 
+YOUTUBE_UPLOAD_SCOPE = "https://www.googleapis.com/auth/youtube.upload"
+YOUTUBE_TOKEN_URI = "https://oauth2.googleapis.com/token"
+YOUTUBE_TITLE_MAX = 100
+YOUTUBE_DESC_MAX = 5000
+YOUTUBE_CHANNEL_HANDLE = "@williamcourterwelch"
+DEFAULT_YOUTUBE_PRIVACY = "unlisted"
+SAFE_EXC_MAX = 240
+
 
 def _missing(env_names):
     return [name for name in env_names if not (os.getenv(name) or "").strip()]
+
+
+_SECRET_IN_TEXT = re.compile(
+    r"(ya29\.[A-Za-z0-9._-]+|1//[A-Za-z0-9._-]+|"
+    r"(?:client_secret|refresh_token|access_token)\s*[:=]\s*\S+)",
+    re.I,
+)
+
+
+def _safe_exc(exc: Exception) -> str:
+    """Keep error type; strip token-shaped values from the reason string."""
+    text = _SECRET_IN_TEXT.sub("[redacted]", f"{type(exc).__name__}: {exc}")
+    return text[:SAFE_EXC_MAX]
 
 
 def _result(channel, status, reason, url="", extra=None):
@@ -62,7 +85,7 @@ def publish_transistor(audio_path, title, description="", tags=None, transcript=
     result = upload_episode(
         audio_path=audio_path,
         title=title,
-        description=description,
+        description=with_trial_cta(description),
         tags=tags or [],
         transcript=transcript or "",
     )
@@ -75,26 +98,134 @@ def publish_transistor(audio_path, title, description="", tags=None, transcript=
     )
 
 
+def resolve_youtube_privacy(raw=None):
+    """unlisted (default, canary) or public. Anything else falls back to unlisted."""
+    value = (raw if raw is not None else os.getenv("YOUTUBE_PRIVACY") or DEFAULT_YOUTUBE_PRIVACY)
+    value = str(value).strip().lower()
+    if value in ("unlisted", "public"):
+        return value
+    return DEFAULT_YOUTUBE_PRIVACY
+
+
+def youtube_oauth_paths():
+    """Env paths only. Never invent or bake client ids / tokens."""
+    secrets = (os.getenv("YOUTUBE_CLIENT_SECRETS") or os.getenv("YOUTUBE_CREDENTIALS") or "").strip()
+    token = (os.getenv("YOUTUBE_TOKEN") or "").strip()
+    return secrets, token
+
+
+def oauth_client_fields(secrets_path, token_path):
+    """Merge token JSON with installed/web client secrets. Paths only — no defaults."""
+    token_data = json.loads(Path(token_path).read_text(encoding="utf-8"))
+    secrets_data = json.loads(Path(secrets_path).read_text(encoding="utf-8"))
+    if not isinstance(token_data, dict) or not isinstance(secrets_data, dict):
+        raise ValueError("YouTube OAuth JSON must be objects")
+    client = secrets_data.get("installed") or secrets_data.get("web") or secrets_data
+    if not isinstance(client, dict):
+        raise ValueError("YouTube client secrets missing installed/web object")
+    scopes = token_data.get("scopes") or [YOUTUBE_UPLOAD_SCOPE]
+    if isinstance(scopes, str):
+        scopes = [scopes]
+    return {
+        "token": token_data.get("token") or token_data.get("access_token") or None,
+        "refresh_token": token_data.get("refresh_token") or None,
+        "token_uri": token_data.get("token_uri") or client.get("token_uri") or YOUTUBE_TOKEN_URI,
+        "client_id": token_data.get("client_id") or client.get("client_id") or None,
+        "client_secret": token_data.get("client_secret") or client.get("client_secret") or None,
+        "scopes": list(scopes),
+    }
+
+
+def refresh_youtube_credentials(creds, request_factory=None):
+    """Refresh via google.oauth2.credentials + Request when expired / invalid."""
+    if request_factory is None:
+        from google.auth.transport.requests import Request
+
+        request_factory = Request
+    needs_refresh = bool(getattr(creds, "refresh_token", None)) and (
+        not getattr(creds, "valid", True) or getattr(creds, "expired", False)
+    )
+    if not needs_refresh:
+        return False
+    creds.refresh(request_factory())
+    return True
+
+
+def load_youtube_credentials(secrets_path, token_path):
+    """Build Credentials from env file paths and persist a refreshed token."""
+    from google.oauth2.credentials import Credentials
+
+    fields = oauth_client_fields(secrets_path, token_path)
+    if not fields.get("client_id") or not fields.get("refresh_token"):
+        raise ValueError("YouTube OAuth files need client_id and refresh_token")
+    creds = Credentials(
+        token=fields["token"],
+        refresh_token=fields["refresh_token"],
+        token_uri=fields["token_uri"],
+        client_id=fields["client_id"],
+        client_secret=fields["client_secret"],
+        scopes=fields["scopes"],
+    )
+    if refresh_youtube_credentials(creds):
+        Path(token_path).write_text(creds.to_json(), encoding="utf-8")
+        try:
+            os.chmod(token_path, 0o600)
+        except OSError:
+            pass
+    return creds
+
+
+def _insert_youtube_video(creds, video_path, title, description, privacy):
+    from googleapiclient.discovery import build
+    from googleapiclient.http import MediaFileUpload
+
+    youtube = build("youtube", "v3", credentials=creds, cache_discovery=False)
+    body = {
+        "snippet": {
+            "title": (title or "GHL AI")[:YOUTUBE_TITLE_MAX],
+            "description": (description or "")[:YOUTUBE_DESC_MAX],
+        },
+        "status": {"privacyStatus": privacy},
+    }
+    media = MediaFileUpload(str(video_path), mimetype="video/mp4", resumable=True)
+    return (
+        youtube.videos()
+        .insert(part="snippet,status", body=body, media_body=media)
+        .execute()
+    )
+
+
 def publish_youtube(video_path, title, description=""):
-    """YouTube long-form / Shorts. Stub until channel OAuth exists."""
+    """Upload a local video via YouTube Data API videos.insert. Skip without real OAuth files."""
     if not video_path or not Path(str(video_path)).exists():
         return _result("youtube", "skipped", "no local video artifact")
-    secrets = os.getenv("YOUTUBE_CLIENT_SECRETS") or os.getenv("YOUTUBE_CREDENTIALS")
-    token = os.getenv("YOUTUBE_TOKEN")
+    secrets, token = youtube_oauth_paths()
     if not secrets or not token or not Path(secrets).exists() or not Path(token).exists():
         return _result(
             "youtube",
             "skipped",
-            "TODO: YouTube Data API. Need YOUTUBE_CLIENT_SECRETS + "
-            "YOUTUBE_TOKEN from channel OAuth. Do not invent client ids.",
+            "Need YOUTUBE_CLIENT_SECRETS + YOUTUBE_TOKEN file paths "
+            "(channel OAuth). Do not invent client ids.",
         )
+    description = with_trial_cta(description)
+    privacy = resolve_youtube_privacy()
+    try:
+        creds = load_youtube_credentials(secrets, token)
+        response = _insert_youtube_video(creds, video_path, title, description, privacy)
+    except Exception as exc:
+        return _result(
+            "youtube",
+            "error",
+            f"videos.insert failed: {_safe_exc(exc)}",
+        )
+    video_id = (response or {}).get("id") or ""
+    url = f"https://www.youtube.com/watch?v={video_id}" if video_id else ""
     return _result(
         "youtube",
-        "skipped",
-        (
-            "TODO: credentials files are present — wire googleapiclient videos.insert "
-            f"for {title!r} ({video_path}). Channel auth later."
-        ),
+        "published",
+        f"uploaded via videos.insert ({privacy}) to {YOUTUBE_CHANNEL_HANDLE}",
+        url=url,
+        extra={"id": video_id, "privacy": privacy},
     )
 
 
@@ -250,7 +381,7 @@ def publish_artifacts(artifacts, content, seo_data=None, channels=None):
         )
 
     if "youtube" in wanted:
-        video = by_fmt.get("video") or {}
+        video = by_fmt.get("video") or by_fmt.get("cinematic-video") or {}
         results.append(publish_youtube(video.get("path"), title, description=description))
 
     if "ghl-site" in wanted:

@@ -40,6 +40,16 @@ class ParseFormatsTests(unittest.TestCase):
     def test_iterable_input(self):
         self.assertEqual(parse_formats(["video", "quiz"]), ["video", "quiz"])
 
+    def test_video_format_is_canonical(self):
+        self.assertEqual(parse_formats("video"), ["video"])
+        spec = format_spec("video")
+        self.assertEqual(spec["cli"], "video")
+        self.assertEqual(spec["generate"], "generate_video")
+
+    def test_cinematic_video_aliases_to_video(self):
+        self.assertEqual(parse_formats("cinematic-video"), ["video"])
+        self.assertEqual(canonicalize_format("cinematic_video"), "video")
+
     def test_canonical_cli_names(self):
         for name in STUDIO_FORMATS:
             spec = format_spec(name)
