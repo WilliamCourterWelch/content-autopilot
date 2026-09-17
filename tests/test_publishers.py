@@ -11,7 +11,9 @@ from scripts.publishers import (
     YOUTUBE_TITLE_MAX,
     YOUTUBE_TOKEN_URI,
     YOUTUBE_UPLOAD_SCOPE,
+    _SECRET_IN_TEXT,
     _insert_youtube_video,
+    _safe_exc,
     load_youtube_credentials,
     oauth_client_fields,
     publish_artifacts,
@@ -285,6 +287,32 @@ class YoutubePublisherTests(unittest.TestCase):
         self.assertIn("RuntimeError", result["reason"])
         self.assertIn("quotaExceeded", result["reason"])
         self.assertNotIn("test-client-secret", result["reason"])
+
+    def test_secret_regex_compiles_and_redacts_client_secret(self):
+        self.assertTrue(_SECRET_IN_TEXT.pattern)
+        text = _safe_exc(RuntimeError("client_secret=super-secret access_token=abc"))
+        self.assertNotIn("super-secret", text)
+        self.assertIn("[redacted]", text)
+        self.assertLessEqual(len(_safe_exc(RuntimeError("x" * 500))), 240)
+
+    def test_invalid_oauth_json_returns_error_without_file_contents(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            secrets = Path(tmp) / "client.json"
+            token = Path(tmp) / "token.json"
+            secrets.write_text("{not-json", encoding="utf-8")
+            token.write_text("{also-bad", encoding="utf-8")
+            video = Path(tmp) / "demo.mp4"
+            video.write_bytes(b"mp4")
+            env = {
+                "YOUTUBE_CLIENT_SECRETS": str(secrets),
+                "YOUTUBE_CREDENTIALS": "",
+                "YOUTUBE_TOKEN": str(token),
+                "YOUTUBE_PRIVACY": "unlisted",
+            }
+            with mock.patch.dict(os.environ, env, clear=False):
+                result = publish_youtube(str(video), "Title", "Desc")
+        self.assertEqual(result["status"], "error")
+        self.assertNotIn("{not-json", result["reason"])
 
     def test_error_reason_redacts_token_shaped_values(self):
         with tempfile.TemporaryDirectory() as tmp:

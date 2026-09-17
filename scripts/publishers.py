@@ -29,7 +29,9 @@ YOUTUBE_UPLOAD_SCOPE = "https://www.googleapis.com/auth/youtube.upload"
 YOUTUBE_TOKEN_URI = "https://oauth2.googleapis.com/token"
 YOUTUBE_TITLE_MAX = 100
 YOUTUBE_DESC_MAX = 5000
+YOUTUBE_CHANNEL_HANDLE = "@williamcourterwelch"
 DEFAULT_YOUTUBE_PRIVACY = "unlisted"
+SAFE_EXC_MAX = 240
 
 
 def _missing(env_names):
@@ -38,14 +40,15 @@ def _missing(env_names):
 
 _SECRET_IN_TEXT = re.compile(
     r"(ya29\.[A-Za-z0-9._-]+|1//[A-Za-z0-9._-]+|"
-    r"(?i)(?:client_secret|refresh_token|access_token)\s*[:=]\s*\S+)"
+    r"(?:client_secret|refresh_token|access_token)\s*[:=]\s*\S+)",
+    re.I,
 )
 
 
 def _safe_exc(exc: Exception) -> str:
     """Keep error type; strip token-shaped values from the reason string."""
     text = _SECRET_IN_TEXT.sub("[redacted]", f"{type(exc).__name__}: {exc}")
-    return text[:240]
+    return text[:SAFE_EXC_MAX]
 
 
 def _result(channel, status, reason, url="", extra=None):
@@ -220,7 +223,7 @@ def publish_youtube(video_path, title, description=""):
     return _result(
         "youtube",
         "published",
-        f"uploaded via videos.insert ({privacy}) to @williamcourterwelch",
+        f"uploaded via videos.insert ({privacy}) to {YOUTUBE_CHANNEL_HANDLE}",
         url=url,
         extra={"id": video_id, "privacy": privacy},
     )
