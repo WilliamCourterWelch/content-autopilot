@@ -1,11 +1,18 @@
 import json
 import os
+import stat
 import tempfile
 import unittest
 from pathlib import Path
 from unittest import mock
 
 from scripts.publishers import (
+    YOUTUBE_DESC_MAX,
+    YOUTUBE_TITLE_MAX,
+    YOUTUBE_TOKEN_URI,
+    YOUTUBE_UPLOAD_SCOPE,
+    _insert_youtube_video,
+    load_youtube_credentials,
     oauth_client_fields,
     publish_artifacts,
     publish_social,
@@ -13,9 +20,10 @@ from scripts.publishers import (
     publish_youtube,
     refresh_youtube_credentials,
     resolve_youtube_privacy,
+    youtube_oauth_paths,
 )
 from scripts.seo import TRIAL_CTA_LINE
-from scripts.upload import content_type_for_audio, resolve_audio_url
+from scripts.upload import content_type_for_audio, resolve_audio_url, upload_episode
 
 
 class UploadHelpersTests(unittest.TestCase):
@@ -249,6 +257,273 @@ class YoutubePublisherTests(unittest.TestCase):
             sent = upload.call_args.kwargs["description"]
             self.assertIn(TRIAL_CTA_LINE, sent)
             self.assertIn("https://example.com/aff", sent)
+
+    def test_skips_when_video_missing(self):
+        self.assertEqual(publish_youtube(None, "Title")["status"], "skipped")
+        self.assertEqual(publish_youtube("", "Title")["reason"], "no local video artifact")
+        missing = publish_youtube("/tmp/does-not-exist-youtube.mp4", "Title")
+        self.assertEqual(missing["status"], "skipped")
+        self.assertIn("no local video artifact", missing["reason"])
+
+    def test_insert_exception_returns_error(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            secrets, token = self._write_oauth_files(tmp)
+            video = Path(tmp) / "demo.mp4"
+            video.write_bytes(b"mp4")
+            env = {
+                "YOUTUBE_CLIENT_SECRETS": str(secrets),
+                "YOUTUBE_TOKEN": str(token),
+            }
+            with mock.patch.dict(os.environ, env, clear=False):
+                with mock.patch("scripts.publishers.load_youtube_credentials", return_value="creds"):
+                    with mock.patch(
+                        "scripts.publishers._insert_youtube_video",
+                        side_effect=RuntimeError("quotaExceeded"),
+                    ):
+                        result = publish_youtube(str(video), "Title", "Desc")
+        self.assertEqual(result["status"], "error")
+        self.assertIn("RuntimeError", result["reason"])
+        self.assertIn("quotaExceeded", result["reason"])
+        self.assertNotIn("test-client-secret", result["reason"])
+
+    def test_error_reason_redacts_token_shaped_values(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            secrets, token = self._write_oauth_files(tmp)
+            video = Path(tmp) / "demo.mp4"
+            video.write_bytes(b"mp4")
+            env = {
+                "YOUTUBE_CLIENT_SECRETS": str(secrets),
+                "YOUTUBE_TOKEN": str(token),
+            }
+            with mock.patch.dict(os.environ, env, clear=False):
+                with mock.patch("scripts.publishers.load_youtube_credentials", return_value="creds"):
+                    with mock.patch(
+                        "scripts.publishers._insert_youtube_video",
+                        side_effect=RuntimeError("refresh_token=1//leaked-refresh ya29.leaked-access"),
+                    ):
+                        result = publish_youtube(str(video), "Title", "Desc")
+        self.assertEqual(result["status"], "error")
+        self.assertNotIn("1//leaked-refresh", result["reason"])
+        self.assertNotIn("ya29.leaked-access", result["reason"])
+        self.assertIn("[redacted]", result["reason"])
+
+    def test_published_without_video_id_has_empty_url(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            secrets, token = self._write_oauth_files(tmp)
+            video = Path(tmp) / "demo.mp4"
+            video.write_bytes(b"mp4")
+            env = {
+                "YOUTUBE_CLIENT_SECRETS": str(secrets),
+                "YOUTUBE_TOKEN": str(token),
+            }
+            with mock.patch.dict(os.environ, env, clear=False):
+                with mock.patch("scripts.publishers.load_youtube_credentials", return_value="creds"):
+                    with mock.patch("scripts.publishers._insert_youtube_video", return_value=None):
+                        result = publish_youtube(str(video), "Title", "Desc")
+        self.assertEqual(result["status"], "published")
+        self.assertEqual(result["id"], "")
+        self.assertEqual(result["url"], "")
+
+    def test_publish_artifacts_cinematic_video_fallback(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            video = Path(tmp) / "cine.mp4"
+            video.write_bytes(b"mp4")
+            with mock.patch(
+                "scripts.publishers.publish_youtube",
+                return_value={"channel": "youtube", "status": "published", "reason": "ok"},
+            ) as yt:
+                results = publish_artifacts(
+                    [{"format": "cinematic-video", "path": str(video)}],
+                    {"title": "Voice AI"},
+                    seo_data={"title": "Voice AI", "description": "Cinematic cut."},
+                    channels=["youtube"],
+                )
+            yt.assert_called_once()
+            self.assertEqual(yt.call_args[0][0], str(video))
+            self.assertTrue(any(r["channel"] == "youtube" for r in results))
+
+    def test_oauth_web_client_access_token_and_string_scopes(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            secrets = Path(tmp) / "web.json"
+            token = Path(tmp) / "token.json"
+            secrets.write_text(
+                json.dumps(
+                    {
+                        "web": {
+                            "client_id": "web-client.apps.googleusercontent.com",
+                            "client_secret": "web-secret",
+                        }
+                    }
+                ),
+                encoding="utf-8",
+            )
+            token.write_text(
+                json.dumps(
+                    {
+                        "access_token": "ya29.from-access-token",
+                        "refresh_token": "1//refresh",
+                        "scopes": YOUTUBE_UPLOAD_SCOPE,
+                    }
+                ),
+                encoding="utf-8",
+            )
+            fields = oauth_client_fields(str(secrets), str(token))
+        self.assertEqual(fields["client_id"], "web-client.apps.googleusercontent.com")
+        self.assertEqual(fields["token"], "ya29.from-access-token")
+        self.assertEqual(fields["scopes"], [YOUTUBE_UPLOAD_SCOPE])
+        self.assertEqual(fields["token_uri"], YOUTUBE_TOKEN_URI)
+
+    def test_oauth_non_object_json_raises(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            secrets = Path(tmp) / "s.json"
+            token = Path(tmp) / "t.json"
+            secrets.write_text("[]", encoding="utf-8")
+            token.write_text("{}", encoding="utf-8")
+            with self.assertRaises(ValueError):
+                oauth_client_fields(str(secrets), str(token))
+            secrets.write_text(json.dumps({"installed": "not-an-object"}), encoding="utf-8")
+            token.write_text(json.dumps({"refresh_token": "x"}), encoding="utf-8")
+            with self.assertRaises(ValueError):
+                oauth_client_fields(str(secrets), str(token))
+
+    def test_load_credentials_requires_client_id_and_refresh(self):
+        import sys
+
+        with tempfile.TemporaryDirectory() as tmp:
+            secrets = Path(tmp) / "s.json"
+            token = Path(tmp) / "t.json"
+            secrets.write_text(json.dumps({"installed": {"client_secret": "only-secret"}}), encoding="utf-8")
+            token.write_text(json.dumps({"token": "ya29.x"}), encoding="utf-8")
+            creds_mod = mock.Mock()
+            with mock.patch.dict(sys.modules, {"google.oauth2.credentials": creds_mod}):
+                with self.assertRaises(ValueError) as ctx:
+                    load_youtube_credentials(str(secrets), str(token))
+        creds_mod.Credentials.assert_not_called()
+        self.assertIn("client_id", str(ctx.exception))
+        self.assertIn("refresh_token", str(ctx.exception))
+
+    def test_load_credentials_skips_write_when_not_refreshed(self):
+        import sys
+
+        with tempfile.TemporaryDirectory() as tmp:
+            secrets, token = self._write_oauth_files(tmp)
+            before = token.read_text(encoding="utf-8")
+            creds = mock.Mock()
+            creds_mod = mock.Mock()
+            creds_mod.Credentials.return_value = creds
+            with mock.patch.dict(sys.modules, {"google.oauth2.credentials": creds_mod}):
+                with mock.patch("scripts.publishers.refresh_youtube_credentials", return_value=False):
+                    out = load_youtube_credentials(str(secrets), str(token))
+            self.assertIs(out, creds)
+            self.assertEqual(token.read_text(encoding="utf-8"), before)
+            creds.to_json.assert_not_called()
+
+    def test_refresh_default_factory_uses_google_request(self):
+        import sys
+
+        creds = mock.Mock()
+        creds.refresh_token = "1//test-refresh-token"
+        creds.valid = False
+        creds.expired = True
+        request_obj = mock.Mock()
+        transport = mock.Mock()
+        transport.Request.return_value = request_obj
+        with mock.patch.dict(sys.modules, {"google.auth.transport.requests": transport}):
+            self.assertTrue(refresh_youtube_credentials(creds))
+        transport.Request.assert_called_once_with()
+        creds.refresh.assert_called_once_with(request_obj)
+
+    def test_load_credentials_persists_refreshed_token(self):
+        import sys
+
+        with tempfile.TemporaryDirectory() as tmp:
+            secrets, token = self._write_oauth_files(tmp)
+            creds = mock.Mock()
+            creds.to_json.return_value = json.dumps({"token": "ya29.refreshed"})
+            creds_mod = mock.Mock()
+            creds_mod.Credentials.return_value = creds
+            with mock.patch.dict(sys.modules, {"google.oauth2.credentials": creds_mod}):
+                with mock.patch("scripts.publishers.refresh_youtube_credentials", return_value=True):
+                    out = load_youtube_credentials(str(secrets), str(token))
+            self.assertIs(out, creds)
+            self.assertEqual(json.loads(token.read_text(encoding="utf-8"))["token"], "ya29.refreshed")
+            self.assertEqual(stat.S_IMODE(token.stat().st_mode), 0o600)
+
+    def test_youtube_oauth_paths_credentials_alias(self):
+        env = {
+            "YOUTUBE_CLIENT_SECRETS": "",
+            "YOUTUBE_CREDENTIALS": "/home/box/.secrets/youtube-oauth-client.json",
+            "YOUTUBE_TOKEN": "/home/box/.secrets/youtube-oauth-token.json",
+        }
+        with mock.patch.dict(os.environ, env, clear=False):
+            secrets, token = youtube_oauth_paths()
+        self.assertEqual(secrets, "/home/box/.secrets/youtube-oauth-client.json")
+        self.assertEqual(token, "/home/box/.secrets/youtube-oauth-token.json")
+
+    def test_refresh_skipped_without_refresh_token(self):
+        creds = mock.Mock()
+        creds.refresh_token = None
+        creds.valid = False
+        creds.expired = True
+        self.assertFalse(refresh_youtube_credentials(creds, request_factory=mock.Mock))
+        creds.refresh.assert_not_called()
+
+    def test_insert_truncates_title_description_and_defaults_title(self):
+        import sys
+
+        youtube = mock.Mock()
+        youtube.videos.return_value.insert.return_value.execute.return_value = {"id": "vid1"}
+        discovery = mock.Mock()
+        discovery.build.return_value = youtube
+        http_mod = mock.Mock()
+        http_mod.MediaFileUpload.return_value = "media"
+        with mock.patch.dict(
+            sys.modules,
+            {"googleapiclient.discovery": discovery, "googleapiclient.http": http_mod},
+        ):
+            _insert_youtube_video("creds", "/tmp/v.mp4", "T" * 180, "D" * 6000, "unlisted")
+            empty = _insert_youtube_video("creds", "/tmp/v.mp4", "", None, "public")
+        self.assertEqual(empty, {"id": "vid1"})
+        first_body = youtube.videos.return_value.insert.call_args_list[0].kwargs["body"]
+        self.assertEqual(len(first_body["snippet"]["title"]), YOUTUBE_TITLE_MAX)
+        self.assertEqual(len(first_body["snippet"]["description"]), YOUTUBE_DESC_MAX)
+        self.assertEqual(first_body["status"]["privacyStatus"], "unlisted")
+        second_body = youtube.videos.return_value.insert.call_args_list[1].kwargs["body"]
+        self.assertEqual(second_body["snippet"]["title"], "GHL AI")
+        self.assertEqual(second_body["snippet"]["description"], "")
+        self.assertEqual(second_body["status"]["privacyStatus"], "public")
+        http_mod.MediaFileUpload.assert_called_with("/tmp/v.mp4", mimetype="video/mp4", resumable=True)
+
+    def test_upload_episode_applies_cta_before_create(self):
+        auth = {"upload_url": "https://s3.example/up", "audio_url": "https://cdn.example/a.m4a"}
+        create_resp = mock.Mock()
+        create_resp.json.return_value = {"data": {"id": "ep1"}}
+        pub_resp = mock.Mock()
+        pub_resp.json.return_value = {
+            "data": {
+                "id": "ep1",
+                "attributes": {"share_url": "https://share.example/x", "status": "published"},
+            }
+        }
+        env = {
+            "TRANSISTOR_API_KEY": "test-key",
+            "TRANSISTOR_SHOW_ID": "9",
+            "AFFILIATE_LINK": "https://example.com/aff",
+        }
+        with tempfile.NamedTemporaryFile(suffix=".m4a") as f:
+            f.write(b"m4a")
+            f.flush()
+            with mock.patch.dict(os.environ, env, clear=False):
+                with mock.patch("scripts.upload._authorize_upload", return_value=auth):
+                    with mock.patch("scripts.upload._upload_audio"):
+                        with mock.patch("scripts.upload.requests.post", return_value=create_resp) as post:
+                            with mock.patch("scripts.upload.requests.patch", return_value=pub_resp):
+                                out = upload_episode(f.name, "Title", description="Audio walkthrough.")
+        self.assertEqual(out["id"], "ep1")
+        summary = post.call_args.kwargs["json"]["episode"]["summary"]
+        self.assertIn("Audio walkthrough.", summary)
+        self.assertIn(TRIAL_CTA_LINE, summary)
+        self.assertIn("https://example.com/aff", summary)
 
 
 class SeoModelFileTests(unittest.TestCase):

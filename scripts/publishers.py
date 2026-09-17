@@ -14,6 +14,7 @@ from __future__ import annotations
 
 import json
 import os
+import re
 from datetime import datetime
 from pathlib import Path
 
@@ -33,6 +34,18 @@ DEFAULT_YOUTUBE_PRIVACY = "unlisted"
 
 def _missing(env_names):
     return [name for name in env_names if not (os.getenv(name) or "").strip()]
+
+
+_SECRET_IN_TEXT = re.compile(
+    r"(ya29\.[A-Za-z0-9._-]+|1//[A-Za-z0-9._-]+|"
+    r"(?i)(?:client_secret|refresh_token|access_token)\s*[:=]\s*\S+)"
+)
+
+
+def _safe_exc(exc: Exception) -> str:
+    """Keep error type; strip token-shaped values from the reason string."""
+    text = _SECRET_IN_TEXT.sub("[redacted]", f"{type(exc).__name__}: {exc}")
+    return text[:240]
 
 
 def _result(channel, status, reason, url="", extra=None):
@@ -200,7 +213,7 @@ def publish_youtube(video_path, title, description=""):
         return _result(
             "youtube",
             "error",
-            f"videos.insert failed: {type(exc).__name__}: {exc}",
+            f"videos.insert failed: {_safe_exc(exc)}",
         )
     video_id = (response or {}).get("id") or ""
     url = f"https://www.youtube.com/watch?v={video_id}" if video_id else ""

@@ -55,6 +55,38 @@ class AiLaneCanaryTests(unittest.TestCase):
                 )
             )
 
+    def test_run_ai_lane_seo_includes_trial_cta(self):
+        from scripts.ai_lane import run_ai_lane
+        from scripts.seo import TRIAL_CTA_LINE
+
+        content = {
+            "title": "How to set up a Conversation AI bot",
+            "body": "Conversation AI setup steps for Voice AI agents.",
+            "source_url": SEED_AI_URLS[0],
+            "source_type": "ghl-ai-help",
+            "_ai_filter": {"matched": ["conversation ai"], "reason": "ok"},
+        }
+        env = {"ANTHROPIC_API_KEY": "", "AFFILIATE_LINK": "https://example.com/aff"}
+        with mock.patch.dict("os.environ", env, clear=False):
+            with mock.patch("scripts.ai_lane.resolve_topics", return_value=[content]):
+                with mock.patch(
+                    "scripts.ai_lane.check_already_done",
+                    return_value=mock.Mock(duplicate=False, reason="ok"),
+                ):
+                    with mock.patch(
+                        "scripts.notebooklm.generate_studio",
+                        return_value={"artifacts": [{"format": "video", "path": "/tmp/v.mp4"}]},
+                    ):
+                        with mock.patch("scripts.ai_lane.publish_artifacts", return_value=[]) as pub:
+                            with mock.patch("scripts.ai_lane.load_published", return_value=[]):
+                                with mock.patch("scripts.ai_lane.save_published"):
+                                    result = run_ai_lane(formats="video")
+        self.assertTrue(result["ok"])
+        seo = pub.call_args.kwargs["seo_data"]
+        self.assertIn(TRIAL_CTA_LINE, seo["description"])
+        self.assertIn("https://example.com/aff", seo["description"])
+        self.assertIn("Conversation AI setup steps", seo["description"])
+
 
 if __name__ == "__main__":
     unittest.main()
