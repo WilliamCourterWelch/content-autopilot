@@ -9,6 +9,8 @@ import os
 
 import requests
 
+from scripts.seo import with_trial_cta
+
 
 def _authorize_upload(api_key, filename):
     """Get an authorized upload URL from Transistor."""
@@ -73,6 +75,8 @@ def upload_episode(audio_path, title, description="", tags=None, transcript=""):
 
     if not api_key or not show_id:
         raise ValueError("TRANSISTOR_API_KEY and TRANSISTOR_SHOW_ID required in .env")
+
+    description = with_trial_cta(description)
 
     filename = os.path.basename(audio_path)
     content_type = content_type_for_audio(filename)

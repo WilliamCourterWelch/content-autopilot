@@ -9,6 +9,7 @@ Usage:
   python3 run.py --limit 5          # batch of 5 episodes
   python3 run.py --ai-lane          # one GHL AI help topic → Studio audio
   python3 run.py --ai-lane --formats audio,report,infographic --limit 1
+  python3 run.py --ai-lane --formats video --limit 1
   python3 run.py --ai-lane --url https://help.gohighlevel.com/... --dry-run
 """
 
@@ -139,9 +140,11 @@ def run_episode(topic=None):
             log(f"SEO error (non-fatal): {e}")
     else:
         log("Skipping SEO — no ANTHROPIC_API_KEY configured.")
+        from scripts.seo import with_trial_cta
+
         seo_data = {
             "title": content.get("title", "Untitled Episode"),
-            "description": content.get("summary", ""),
+            "description": with_trial_cta(content.get("summary", "")),
             "tags": [],
         }
 
